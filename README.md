@@ -32,8 +32,8 @@ Live demo: [https://nawalacheck.skiddle.id](https://nawalacheck.skiddle.id)
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/Skiddle-ID/nawalacheck.git
-   cd nawalacheck
+   git clone https://github.com/Skiddle-ID/domainchecker.git
+   cd domainchecker
    ```
 
 2. Install dependencies:
