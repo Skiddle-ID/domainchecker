@@ -33,12 +33,19 @@ const RATE_LIMIT = {
   WINDOW_MINUTES: 10
 }
 
+// In-memory cache
+let statsCache: StatsData | null = null
+let rateLimitCache: { [key: string]: RateLimitData } = {}
+
 // Middleware
 app.use('*', logger())
 app.use('*', cors())
 
 // Initialize stats if not exists
 async function initializeStats(c: Context<Bindings>): Promise<StatsData> {
+  if (statsCache) {
+    return statsCache
+  }
   const stats = await c.env.STATS_STORE.get('global_stats')
   if (!stats) {
     const initialStats: StatsData = {
@@ -51,9 +58,11 @@ async function initializeStats(c: Context<Bindings>): Promise<StatsData> {
       lastReset: Date.now()
     }
     await c.env.STATS_STORE.put('global_stats', JSON.stringify(initialStats))
+    statsCache = initialStats
     return initialStats
   }
-  return JSON.parse(stats)
+  statsCache = JSON.parse(stats)
+  return statsCache
 }
 
 // Stats middleware
@@ -61,9 +70,17 @@ app.use('*', async (c, next) => {
   if (c.req.method === 'POST' && c.req.path === '/check') {
     const stats = await initializeStats(c)
     stats.totalRequests++
-    await c.env.STATS_STORE.put('global_stats', JSON.stringify(stats))
+    statsCache = stats
   }
   await next()
+})
+
+// Periodically write stats to KV store
+app.get('/stats/update', async (c) => {
+  if (statsCache) {
+    await c.env.STATS_STORE.put('global_stats', JSON.stringify(statsCache))
+  }
+  return c.json({ message: 'Stats updated' })
 })
 
 // Rate limiting middleware
@@ -72,14 +89,14 @@ async function checkRateLimit(c: Context<Bindings>, ip: string, domainCount: num
   const now = Date.now()
   const windowStart = now - (RATE_LIMIT.WINDOW_MINUTES * 60 * 1000)
 
-  const stored = await c.env.RATE_LIMIT_STORE.get(key)
-  let usage: RateLimitData | null = stored ? JSON.parse(stored) : null
+  let usage: RateLimitData | null = rateLimitCache[key] || null
   
   if (!usage || usage.timestamp < windowStart) {
     usage = {
       count: domainCount,
       timestamp: now
     }
+    rateLimitCache[key] = usage
     await c.env.RATE_LIMIT_STORE.put(key, JSON.stringify(usage), {
       expirationTtl: RATE_LIMIT.WINDOW_MINUTES * 60 // TTL in seconds
     })
@@ -104,6 +121,7 @@ async function checkRateLimit(c: Context<Bindings>, ip: string, domainCount: num
     count: totalCount,
     timestamp: usage.timestamp
   }
+  rateLimitCache[key] = usage
   await c.env.RATE_LIMIT_STORE.put(key, JSON.stringify(usage), {
     expirationTtl: RATE_LIMIT.WINDOW_MINUTES * 60 // TTL in seconds
   })
@@ -269,6 +287,15 @@ const statsHtml = `<!DOCTYPE html>
         // Load stats immediately and refresh every 30 seconds
         loadStats();
         setInterval(loadStats, 30000);
+
+        // Periodically update stats on the server
+        setInterval(async () => {
+            try {
+                await fetch('/stats/update');
+            } catch (error) {
+                console.error('Error updating stats:', error);
+            }
+        }, 60000); // Every 60 seconds
     </script>
 </body>
 </html>`
@@ -554,7 +581,7 @@ app.post('/check', async (c: Context<Bindings>) => {
     })
 
     // Save updated stats
-    await c.env.STATS_STORE.put('global_stats', JSON.stringify(stats))
+    statsCache = stats
 
     return c.json({
       domains: results,
