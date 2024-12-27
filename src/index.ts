@@ -76,11 +76,12 @@ app.use('*', async (c, next) => {
 })
 
 // Periodically write stats to KV store
-setInterval(async () => {
+app.get('/stats/update', async (c) => {
   if (statsCache) {
     await c.env.STATS_STORE.put('global_stats', JSON.stringify(statsCache))
   }
-}, 60000) // Every 60 seconds
+  return c.json({ message: 'Stats updated' })
+})
 
 // Rate limiting middleware
 async function checkRateLimit(c: Context<Bindings>, ip: string, domainCount: number): Promise<{ allowed: boolean, remaining: number, resetTime?: Date }> {
@@ -286,6 +287,15 @@ const statsHtml = `<!DOCTYPE html>
         // Load stats immediately and refresh every 30 seconds
         loadStats();
         setInterval(loadStats, 30000);
+
+        // Periodically update stats on the server
+        setInterval(async () => {
+            try {
+                await fetch('/stats/update');
+            } catch (error) {
+                console.error('Error updating stats:', error);
+            }
+        }, 60000); // Every 60 seconds
     </script>
 </body>
 </html>`
