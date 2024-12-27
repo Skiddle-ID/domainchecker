@@ -1,0 +1,20 @@
+name = "domain-checker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "RATE_LIMIT_STORE"
+id = "5f5279204ac941298d26cc294b87e2f8"
+preview_id = "32401d53959249e0a05e2d26d0600231"
+
+[[kv_namespaces]]
+binding = "STATS_STORE"
+id = "e70c8e8e3fd5442c9ee2883f0089b7a9"
+preview_id = "d1c3158c44f54a8d9bb5ad7336dc5afe"
+
+[[routes]]
+pattern = "nawalacheck.skiddle.id"
+custom_domain = true
+
+[observability.logs]
+enabled = true
