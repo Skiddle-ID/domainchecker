@@ -1,4 +1,4 @@
-export const statsHtml = `<!DOCTYPE html>
+export const statsHtml = /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -106,7 +106,7 @@ export const statsHtml = `<!DOCTYPE html>
 </body>
 </html>`;
 
-export const indexHtml = `<!DOCTYPE html>
+export const indexHtml = /* html */`<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -121,102 +121,118 @@ export const indexHtml = `<!DOCTYPE html>
             <h1 class="text-3xl font-bold">Domain Checker</h1>
             <a href="/stats" class="text-indigo-600 hover:text-indigo-800">View Statistics</a>
         </div>
-        <div class="max-w-2xl mx-auto bg-white rounded-lg shadow-md p-6">
-            <div class="mb-4 text-sm text-gray-600">
-                Rate limit: 1000 domains per 10 minutes
-            </div>
+        <div class="bg-white rounded-lg shadow-md p-6">
             <form id="checkForm" class="space-y-4">
                 <div>
-                    <label for="domains" class="block text-sm font-medium text-gray-700 mb-2">Enter domains (one per line):</label>
-                    <textarea id="domains" name="domains" rows="10" 
-                        class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                        placeholder="example.com&#10;example.net&#10;example.org"></textarea>
+                    <label for="domains" class="block text-sm font-medium text-gray-700 mb-2">Enter domains (one per line)</label>
+                    <div class="text-sm text-gray-600 mb-2">Rate limit: 1000 domains per 10 minutes. Maximum 100 domains per request.</div>
+                    <textarea id="domains" name="domains" rows="10" class="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="example.com&#10;example.net&#10;example.org"></textarea>
                 </div>
-                <button type="submit" 
-                    class="w-full bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">
-                    Check Domains
-                </button>
+                <button type="submit" class="w-full bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2">Check Domains</button>
             </form>
-            <div id="results" class="mt-8 hidden">
-                <h2 class="text-xl font-semibold mb-4">Results</h2>
-                <div id="summary" class="mb-6 p-4 bg-gray-50 rounded-lg">
-                    <h3 class="font-medium text-gray-900 mb-2">Summary</h3>
-                    <div id="summaryContent" class="grid grid-cols-2 gap-4 text-sm"></div>
-                </div>
-                <div id="resultsContent" class="space-y-2"></div>
-            </div>
         </div>
+        <div id="results" class="mt-8"></div>
     </div>
     <script>
         document.getElementById('checkForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const domains = document.getElementById('domains').value;
             const resultsDiv = document.getElementById('results');
-            const resultsContent = document.getElementById('resultsContent');
-            const summaryContent = document.getElementById('summaryContent');
             
-            resultsDiv.classList.remove('hidden');
-            resultsContent.innerHTML = '<p class="text-center">Checking domains...</p>';
-            summaryContent.innerHTML = '';
+            // Show loading state
+            resultsDiv.innerHTML = '<div class="animate-pulse bg-white rounded-lg shadow-md p-6"><div class="h-4 bg-gray-200 rounded w-3/4 mb-4"></div><div class="h-4 bg-gray-200 rounded"></div></div>';
             
             try {
+                // Split domains and remove empty lines
+                const domainList = domains.split('\\n')
+                    .map(d => d.trim())
+                    .filter(d => d.length > 0);
+                
                 const response = await fetch('/check', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ domains: domains.split('\\n').map(d => d.trim()).filter(d => d) })
+                    body: JSON.stringify({ domains: domainList })
                 });
                 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || 'Failed to check domains');
-                }
-
-                const results = await response.json();
+                const data = await response.json();
                 
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Update results
+                let resultsHTML = '<div class="bg-white rounded-lg shadow-md p-6">';
+                
+                // Add summary
                 const stats = {
-                    total: results.results.length,
-                    blocked: results.results.filter(d => d.status === 'Blocked').length,
-                    notBlocked: results.results.filter(d => d.status === 'Not Blocked').length,
-                    errors: results.results.filter(d => d.status.startsWith('Error')).length
+                    total: data.results.length,
+                    blocked: data.results.filter(r => r.blocked).length,
+                    notBlocked: data.results.filter(r => !r.blocked && !r.error).length,
+                    errors: data.results.filter(r => r.error).length
                 };
-
-                summaryContent.innerHTML = \`
-                    <div class="bg-blue-100 text-blue-800 p-2 rounded">
-                        <span class="font-medium">Total Domains:</span> \${stats.total}
+                
+                resultsHTML += '<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">';
+                resultsHTML += \`
+                    <div class="text-center">
+                        <div class="text-sm text-gray-600">Total Domains</div>
+                        <div class="text-xl font-semibold">\${stats.total}</div>
                     </div>
-                    <div class="bg-red-100 text-red-800 p-2 rounded">
-                        <span class="font-medium">Blocked:</span> \${stats.blocked}
+                    <div class="text-center">
+                        <div class="text-sm text-gray-600">Blocked</div>
+                        <div class="text-xl font-semibold text-red-600">\${stats.blocked}</div>
                     </div>
-                    <div class="bg-green-100 text-green-800 p-2 rounded">
-                        <span class="font-medium">Not Blocked:</span> \${stats.notBlocked}
+                    <div class="text-center">
+                        <div class="text-sm text-gray-600">Not Blocked</div>
+                        <div class="text-xl font-semibold text-green-600">\${stats.notBlocked}</div>
                     </div>
-                    <div class="bg-yellow-100 text-yellow-800 p-2 rounded">
-                        <span class="font-medium">Errors:</span> \${stats.errors}
+                    <div class="text-center">
+                        <div class="text-sm text-gray-600">Errors</div>
+                        <div class="text-xl font-semibold text-yellow-600">\${stats.errors}</div>
                     </div>
                 \`;
+                resultsHTML += '</div>';
                 
-                resultsContent.innerHTML = results.results.map(function(result) {
-                    return \`<div class="flex justify-between items-center p-3 bg-gray-50 rounded">
-                        <span class="font-medium">\${result.originalUrl}</span>
-                        <span class="px-3 py-1 rounded \${
-                            result.status === 'Blocked' ? 'bg-red-100 text-red-800' : 
-                            result.status === 'Not Blocked' ? 'bg-green-100 text-green-800' : 
-                            'bg-yellow-100 text-yellow-800'
-                        }">\${result.status}</span>
-                    </div>\`;
-                }).join('');
-
-                if (results.remaining !== undefined) {
-                    resultsContent.innerHTML += \`<div class="mt-4 text-sm text-gray-600">
-                        Remaining domains for this window: \${results.remaining}
-                        \${results.resetTime ? '<br>Rate limit resets at: ' + new Date(results.resetTime).toLocaleString() : ''}
-                    </div>\`;
+                // Add results table
+                resultsHTML += '<div class="overflow-x-auto"><table class="min-w-full table-auto">';
+                resultsHTML += '<thead><tr class="bg-gray-50"><th class="px-4 py-2 text-left">Domain</th><th class="px-4 py-2 text-left">Status</th></tr></thead>';
+                resultsHTML += '<tbody>';
+                
+                data.results.forEach(result => {
+                    const statusClass = result.error ? 'text-yellow-800 bg-yellow-100' : 
+                                      result.blocked ? 'text-red-800 bg-red-100' : 
+                                      'text-green-800 bg-green-100';
+                    resultsHTML += \`
+                        <tr>
+                            <td class="border-t px-4 py-2">\${result.originalUrl}</td>
+                            <td class="border-t px-4 py-2"><span class="px-2 py-1 rounded-full text-sm \${statusClass}">\${result.status}</span></td>
+                        </tr>
+                    \`;
+                });
+                
+                resultsHTML += '</tbody></table></div>';
+                
+                // Add rate limit info
+                if (data.remaining !== undefined) {
+                    resultsHTML += \`
+                        <div class="mt-4 text-sm text-gray-600">
+                            Remaining checks for this window: \${data.remaining}<br>
+                            Rate limit resets at: \${new Date(data.resetTime).toLocaleString()}
+                        </div>
+                    \`;
                 }
+                
+                resultsHTML += '</div>';
+                resultsDiv.innerHTML = resultsHTML;
+                
             } catch (error) {
-                resultsContent.innerHTML = '<p class="text-red-600">' + (error.message || 'Error checking domains. Please try again.') + '</p>';
-                summaryContent.innerHTML = '';
+                resultsDiv.innerHTML = \`
+                    <div class="bg-red-50 text-red-600 rounded-lg shadow-md p-6">
+                        <div class="font-medium">Error checking domains</div>
+                        <div class="mt-1">\${error.message}</div>
+                    </div>
+                \`;
             }
         });
     </script>

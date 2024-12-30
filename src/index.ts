@@ -1,84 +1,59 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
-import { checkRateLimit, getStats, incrementStats, initializeTables } from './db'
+import { checkBatch } from './checker'
+import { initializeTables, getStats, incrementStats, checkRateLimit } from './db'
 import { indexHtml, statsHtml } from './templates'
 
-type Env = {
+type Bindings = {
   DATABASE_URL: string
-  DATABASE_AUTH_TOKEN?: string
-  dev?: {
-    DATABASE_URL: string
-    DATABASE_AUTH_TOKEN: string
-  }
+  DATABASE_AUTH_TOKEN: string
 }
 
-const app = new Hono<{ Bindings: Env }>()
+const app = new Hono<{ Bindings: Bindings }>()
 
 // Constants
-const API_ENDPOINT = 'https://check.skiddle.id'
 const RATE_LIMIT = {
   MAX_DOMAINS: 1000,
   WINDOW_MINUTES: 10
 }
+
 const MAX_DOMAINS_PER_REQUEST = 100
-
-// Helper to get environment variables
-function getEnvVars(env: Env) {
-  return {
-    DATABASE_URL: env.dev?.DATABASE_URL || env.DATABASE_URL,
-    DATABASE_AUTH_TOKEN: env.dev?.DATABASE_AUTH_TOKEN || env.DATABASE_AUTH_TOKEN
-  }
-}
-
-// Initialize database
-app.use('*', async (c, next) => {
-  try {
-    await initializeTables(getEnvVars(c.env))
-    await next()
-  } catch (error) {
-    console.error('Database initialization error:', error)
-    // For API endpoints, return error response
-    if (c.req.path === '/check' || c.req.path === '/stats/data') {
-      return c.json({ 
-        error: 'Database error', 
-        details: error.message
-      }, 500)
-    }
-    // For other routes (HTML pages), continue without database
-    await next()
-  }
-})
 
 // Middleware
 app.use('*', logger())
 app.use('*', cors())
 
-// Stats middleware
-app.use('*', async (c, next) => {
-  if (c.req.method === 'POST' && c.req.path === '/check') {
-    try {
-      await incrementStats(getEnvVars(c.env), { requests: 1 })
-    } catch (error) {
-      console.error('Failed to increment stats:', error)
-      // Continue even if stats update fails
-    }
+// Initialize database tables
+app.all('*', async (c, next) => {
+  try {
+    await initializeTables(c.env)
+  } catch (error: unknown) {
+    console.error('Database initialization error:', error instanceof Error ? error.message : error)
   }
   await next()
 })
 
 // Routes
 app.get('/', (c) => {
-  return c.html(indexHtml)
+  return new Response(indexHtml, {
+    headers: {
+      'content-type': 'text/html;charset=UTF-8',
+    },
+  })
 })
 
 app.get('/stats', (c) => {
-  return c.html(statsHtml)
+  return new Response(statsHtml, {
+    headers: {
+      'content-type': 'text/html;charset=UTF-8',
+    },
+  })
 })
 
 app.get('/stats/data', async (c) => {
   try {
-    const stats = await getStats(getEnvVars(c.env))
+    const stats = await getStats(c.env)
     return c.json({
       totalRequests: stats.total_requests,
       totalDomainsChecked: stats.total_domains_checked,
@@ -88,12 +63,9 @@ app.get('/stats/data', async (c) => {
       lastReset: stats.last_reset,
       uniqueUsers: JSON.parse(stats.unique_users)
     })
-  } catch (error) {
-    console.error('Failed to get stats:', error)
-    return c.json({ 
-      error: 'Failed to get stats',
-      details: error.message
-    }, 500)
+  } catch (error: unknown) {
+    console.error('Failed to get stats:', error instanceof Error ? error.message : error)
+    return c.json({ error: 'Failed to get stats' }, 500)
   }
 })
 
@@ -162,85 +134,10 @@ app.post('/check', async (c) => {
       remaining: rateLimit.remaining,
       resetTime: rateLimit.resetTime
     })
-  } catch (error) {
-    console.error('Error processing request:', error)
+  } catch (error: unknown) {
+    console.error('Error processing request:', error instanceof Error ? error.message : error)
     return c.json({ error: 'Internal server error' }, 500)
   }
-})
-
-async function checkBatch(domains: string[]) {
-  try {
-    const url = new URL(API_ENDPOINT)
-    url.searchParams.append('domains', domains.join(','))
-    url.searchParams.append('json', 'true')
-
-    const response = await fetch(url.toString(), {
-      method: 'GET'
-    })
-
-    if (!response.ok) {
-      throw new Error(`API request failed: ${response.statusText}`)
-    }
-
-    const data = await response.json()
-
-    if (!data || typeof data !== 'object') {
-      throw new Error('Invalid API response format')
-    }
-
-    return domains.map(domain => {
-      try {
-        const result = data[domain]
-        if (!result || typeof result !== 'object') {
-          return {
-            originalUrl: domain,
-            status: 'Error: Invalid response',
-            blocked: false,
-            error: true
-          }
-        }
-        return {
-          originalUrl: domain,
-          status: result.blocked ? 'Blocked' : 'Not Blocked',
-          blocked: result.blocked,
-          error: false
-        }
-      } catch (err) {
-        console.error(`Error processing domain ${domain}:`, err)
-        return {
-          originalUrl: domain,
-          status: 'Error: Processing failed',
-          blocked: false,
-          error: true
-        }
-      }
-    })
-  } catch (error) {
-    console.error('Error checking batch:', error)
-    return domains.map(domain => ({
-      originalUrl: domain,
-      status: 'Error: API request failed',
-      blocked: false,
-      error: true
-    }))
-  }
-}
-
-// Handle 404
-app.notFound((c) => {
-  return c.json({
-    message: 'Not Found',
-    status: 404
-  }, 404)
-})
-
-// Error handling
-app.onError((err, c) => {
-  console.error(`${err}`)
-  return c.json({
-    message: 'Internal Server Error',
-    status: 500
-  }, 500)
 })
 
 export default app
