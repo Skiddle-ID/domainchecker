@@ -11,6 +11,15 @@ interface Stats {
   unique_users: string
 }
 
+interface DailyStats {
+  date: string
+  total_requests: number
+  total_domains_checked: number
+  blocked_domains: number
+  not_blocked_domains: number
+  error_domains: number
+}
+
 interface RateLimit {
   ip: string
   count: number
@@ -107,9 +116,60 @@ export async function initializeTables(env: { DATABASE_URL: string; DATABASE_AUT
       args: []
     })
     console.log('Rate limits table created successfully')
+
+    console.log('Creating daily_stats table...')
+    await client.execute({
+      sql: `
+        CREATE TABLE IF NOT EXISTS daily_stats (
+          date TEXT PRIMARY KEY,
+          total_requests INTEGER DEFAULT 0,
+          total_domains_checked INTEGER DEFAULT 0,
+          blocked_domains INTEGER DEFAULT 0,
+          not_blocked_domains INTEGER DEFAULT 0,
+          error_domains INTEGER DEFAULT 0
+        )
+      `,
+      args: []
+    })
+    console.log('Daily stats table created successfully')
   } catch (error: unknown) {
     console.error('Failed to initialize tables:', error instanceof Error ? error.message : error)
     throw error
+  }
+}
+
+// Debug function to check rate_limits table
+export async function checkRateLimitsTable(env: { DATABASE_URL: string; DATABASE_AUTH_TOKEN?: string }) {
+  console.log('Checking rate_limits table...')
+  const client = initializeDbClient(env)
+  
+  try {
+    // Check if table exists
+    const tableCheck = await client.execute({
+      sql: `SELECT name FROM sqlite_master WHERE type='table' AND name='rate_limits'`,
+      args: []
+    })
+    console.log('Table exists check:', tableCheck.rows)
+
+    if (tableCheck.rows.length > 0) {
+      // Get all entries
+      const entries = await client.execute({
+        sql: 'SELECT * FROM rate_limits',
+        args: []
+      })
+      console.log('Rate limits entries:', entries.rows)
+
+      // Get count of unique IPs
+      const uniqueCount = await client.execute({
+        sql: 'SELECT COUNT(DISTINCT ip) as count FROM rate_limits',
+        args: []
+      })
+      console.log('Unique IPs count:', uniqueCount.rows[0]?.count)
+    } else {
+      console.log('rate_limits table does not exist!')
+    }
+  } catch (error: unknown) {
+    console.error('Error checking rate_limits table:', error instanceof Error ? error.message : error)
   }
 }
 
@@ -126,37 +186,45 @@ export async function getStats(env: { DATABASE_URL: string; DATABASE_AUTH_TOKEN?
     not_blocked_domains: 0,
     error_domains: 0,
     last_reset: Date.now(),
-    unique_users: '[]'
+    unique_users: '0'
   }
 
   try {
-    const result = await client.execute({
+    // First get unique users count
+    const uniqueUsersResult = await client.execute({
+      sql: 'SELECT COUNT(DISTINCT ip) as unique_count FROM rate_limits WHERE ip != "unknown"',
+      args: []
+    })
+    const uniqueUsersCount = Number(uniqueUsersResult.rows[0]?.unique_count) || 0
+    console.log('Unique users count:', uniqueUsersCount)
+
+    // Then get stats
+    const statsResult = await client.execute({
       sql: 'SELECT * FROM stats WHERE id = "global"',
       args: []
     })
-    
-    if (!result.rows[0]) {
-      console.log('No stats found, initializing with default values...')
-      const now = Date.now()
-      await client.execute({
-        sql: `
-          INSERT INTO stats (
-            id, total_requests, total_domains_checked, blocked_domains,
-            not_blocked_domains, error_domains, last_reset, unique_users
-          ) VALUES (
-            "global", 0, 0, 0, 0, 0, ?, "[]"
-          )
-        `,
-        args: [now]
-      })
-      console.log('Default stats initialized successfully')
-      return defaultStats
+
+    // If no stats or unique_users is empty, reset the stats table
+    if (!statsResult.rows[0] || !statsResult.rows[0].unique_users) {
+      console.log('Stats need to be reset')
+      await resetStats(client, uniqueUsersCount)
+      return {
+        ...defaultStats,
+        unique_users: String(uniqueUsersCount)
+      }
     }
 
-    const row = result.rows[0]
+    // Update unique_users in stats table
+    await client.execute({
+      sql: 'UPDATE stats SET unique_users = ? WHERE id = "global"',
+      args: [String(uniqueUsersCount)]
+    })
+    console.log('Updated unique_users in stats table')
+
+    const row = statsResult.rows[0]
     console.log('Stats retrieved successfully:', row)
     
-    // Ensure all fields have valid values
+    // Return stats with current unique users count
     return {
       id: String(row.id) || defaultStats.id,
       total_requests: Number(row.total_requests) || defaultStats.total_requests,
@@ -165,11 +233,76 @@ export async function getStats(env: { DATABASE_URL: string; DATABASE_AUTH_TOKEN?
       not_blocked_domains: Number(row.not_blocked_domains) || defaultStats.not_blocked_domains,
       error_domains: Number(row.error_domains) || defaultStats.error_domains,
       last_reset: Number(row.last_reset) || defaultStats.last_reset,
-      unique_users: String(row.unique_users) || defaultStats.unique_users
+      unique_users: String(uniqueUsersCount)
     }
   } catch (error: unknown) {
     console.error('Error getting stats:', error instanceof Error ? error.message : error)
     throw new Error(`Failed to get stats: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+async function resetStats(client: Client, uniqueUsersCount: number) {
+  console.log('Resetting stats table...')
+  const now = Date.now()
+  
+  try {
+    await client.execute({
+      sql: 'DROP TABLE IF EXISTS stats',
+      args: []
+    })
+    
+    await client.execute({
+      sql: `
+        CREATE TABLE IF NOT EXISTS stats (
+          id TEXT PRIMARY KEY,
+          total_requests INTEGER DEFAULT 0,
+          total_domains_checked INTEGER DEFAULT 0,
+          blocked_domains INTEGER DEFAULT 0,
+          not_blocked_domains INTEGER DEFAULT 0,
+          error_domains INTEGER DEFAULT 0,
+          last_reset INTEGER,
+          unique_users TEXT
+        )
+      `,
+      args: []
+    })
+
+    await client.execute({
+      sql: `
+        INSERT INTO stats (
+          id, total_requests, total_domains_checked, blocked_domains,
+          not_blocked_domains, error_domains, last_reset, unique_users
+        ) VALUES (
+          "global", 0, 0, 0, 0, 0, ?, ?
+        )
+      `,
+      args: [now, String(uniqueUsersCount)]
+    })
+    console.log('Stats table reset successfully')
+  } catch (error) {
+    console.error('Error resetting stats:', error)
+    throw error
+  }
+}
+
+export async function getDailyStats(env: { DATABASE_URL: string; DATABASE_AUTH_TOKEN?: string }, days: number = 30): Promise<DailyStats[]> {
+  console.log('Getting daily stats...')
+  const client = initializeDbClient(env)
+  
+  try {
+    const result = await client.execute({
+      sql: `
+        SELECT * FROM daily_stats 
+        WHERE date >= date('now', '-${days} days') 
+        ORDER BY date ASC
+      `,
+      args: []
+    })
+
+    return result.rows as DailyStats[]
+  } catch (error: unknown) {
+    console.error('Error getting daily stats:', error instanceof Error ? error.message : error)
+    throw new Error(`Failed to get daily stats: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -242,6 +375,33 @@ export async function incrementStats(
         args: values
       })
       console.log('Stats incremented successfully')
+
+      // Update daily stats
+      const today = new Date().toISOString().split('T')[0]
+      await client.execute({
+        sql: `
+          INSERT INTO daily_stats (
+            date, total_requests, total_domains_checked, 
+            blocked_domains, not_blocked_domains, error_domains
+          ) 
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(date) DO UPDATE SET
+            total_requests = total_requests + excluded.total_requests,
+            total_domains_checked = total_domains_checked + excluded.total_domains_checked,
+            blocked_domains = blocked_domains + excluded.blocked_domains,
+            not_blocked_domains = not_blocked_domains + excluded.not_blocked_domains,
+            error_domains = error_domains + excluded.error_domains
+        `,
+        args: [
+          today,
+          stats.requests || 0,
+          stats.domainsChecked || 0,
+          stats.blocked || 0,
+          stats.notBlocked || 0,
+          stats.errors || 0
+        ]
+      })
+      console.log('Daily stats updated successfully')
     } catch (error: unknown) {
       console.error('Error incrementing stats:', error instanceof Error ? error.message : error)
       throw new Error(`Failed to increment stats: ${error instanceof Error ? error.message : String(error)}`)
@@ -263,12 +423,6 @@ export async function checkRateLimit(
   const windowStart = now - (windowMinutes * 60 * 1000)
 
   try {
-    // Clean up old rate limits first
-    await client.execute({
-      sql: 'DELETE FROM rate_limits WHERE timestamp < ?',
-      args: [windowStart]
-    })
-
     // Get current usage
     const result = await client.execute({
       sql: 'SELECT count, timestamp FROM rate_limits WHERE ip = ?',
@@ -291,6 +445,31 @@ export async function checkRateLimit(
         args: [ip, domainCount, now]
       })
       console.log('Rate limit initialized successfully')
+
+      return {
+        allowed: true,
+        remaining: maxDomains - domainCount,
+        resetTime: now + (windowMinutes * 60 * 1000)
+      }
+    }
+
+    // Check if the last request was more than window minutes ago
+    if (Number(usage.timestamp) < windowStart) {
+      // Reset count if window has elapsed
+      if (domainCount > maxDomains) {
+        console.log('Rate limit exceeded for new window')
+        return {
+          allowed: false,
+          remaining: maxDomains,
+          resetTime: now + (windowMinutes * 60 * 1000)
+        }
+      }
+
+      await client.execute({
+        sql: 'UPDATE rate_limits SET count = ?, timestamp = ? WHERE ip = ?',
+        args: [domainCount, now, ip]
+      })
+      console.log('Rate limit reset for new window')
 
       return {
         allowed: true,

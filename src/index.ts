@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { checkBatch } from './checker'
-import { initializeTables, getStats, incrementStats, checkRateLimit } from './db'
+import { initializeTables, getStats, getDailyStats, incrementStats, checkRateLimit, checkRateLimitsTable } from './db'
 import { indexHtml, statsHtml } from './templates'
 
 type Bindings = {
@@ -53,7 +53,11 @@ app.get('/stats', (c) => {
 
 app.get('/stats/data', async (c) => {
   try {
-    const stats = await getStats(c.env)
+    const [stats, dailyStats] = await Promise.all([
+      getStats(c.env),
+      getDailyStats(c.env, 30)  // Get last 30 days
+    ])
+
     return c.json({
       totalRequests: stats.total_requests,
       totalDomainsChecked: stats.total_domains_checked,
@@ -61,11 +65,29 @@ app.get('/stats/data', async (c) => {
       notBlockedDomains: stats.not_blocked_domains,
       errorDomains: stats.error_domains,
       lastReset: stats.last_reset,
-      uniqueUsers: JSON.parse(stats.unique_users)
+      uniqueUsers: Number(stats.unique_users),
+      dailyStats: dailyStats.map(day => ({
+        date: day.date,
+        totalRequests: day.total_requests,
+        totalDomainsChecked: day.total_domains_checked,
+        blockedDomains: day.blocked_domains,
+        notBlockedDomains: day.not_blocked_domains,
+        errorDomains: day.error_domains
+      }))
     })
   } catch (error: unknown) {
     console.error('Failed to get stats:', error instanceof Error ? error.message : error)
     return c.json({ error: 'Failed to get stats' }, 500)
+  }
+})
+
+app.get('/debug/rate-limits', async (c) => {
+  try {
+    await checkRateLimitsTable(c.env)
+    return c.json({ message: 'Check logs for rate_limits table details' })
+  } catch (error: unknown) {
+    console.error('Debug endpoint error:', error instanceof Error ? error.message : error)
+    return c.json({ error: 'Failed to check rate_limits' }, 500)
   }
 })
 
