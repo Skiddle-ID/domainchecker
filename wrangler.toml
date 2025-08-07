@@ -5,11 +5,13 @@ compatibility_date = "2024-01-01"
 [vars]
 DATABASE_URL = "libsql://domainchecker-arcestia.turso.io"
 DATABASE_AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJnaWQiOiJmYTg3MTc1YS02NDMxLTRkNDUtYTk2MS03YjhkN2FhYTNhZTIiLCJpYXQiOjE3MzU1MzI2NDB9.xiY8s2CW4l5CLLhzWU1ql5ocPt5BrurmosIgC28KO8bUn3yg-a2spBFrS4rZJlY1GwT1kzkBCsKG1IhP7RzsBA"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1402936397114900490/HnroSmu5L_2Au5xOr6isvbNxFODQB1fI2r9paLIsfAnmfR-0Z-0Tnr4aGaujQkw72Mks"
 
 # Development variables will be the same as production
 [vars.dev]
 DATABASE_URL = "libsql://domainchecker-arcestia.turso.io"
 DATABASE_AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJnaWQiOiJmYTg3MTc1YS02NDMxLTRkNDUtYTk2MS03YjhkN2FhYTNhZTIiLCJpYXQiOjE3MzU1MzI2NDB9.xiY8s2CW4l5CLLhzWU1ql5ocPt5BrurmosIgC28KO8bUn3yg-a2spBFrS4rZJlY1GwT1kzkBCsKG1IhP7RzsBA"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1402936397114900490/HnroSmu5L_2Au5xOr6isvbNxFODQB1fI2r9paLIsfAnmfR-0Z-0Tnr4aGaujQkw72Mks"
 
 [[routes]]
 pattern = "nawalacheck.skiddle.id"

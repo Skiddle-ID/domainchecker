@@ -132,6 +132,21 @@ export async function initializeTables(env: { DATABASE_URL: string; DATABASE_AUT
       args: []
     })
     console.log('Daily stats table created successfully')
+
+    // Create pending_webhook table for Discord batching
+    await client.execute({
+      sql: `
+        CREATE TABLE IF NOT EXISTS pending_webhook (
+          id TEXT PRIMARY KEY,
+          created_at INTEGER,
+          ip TEXT,
+          results_json TEXT,
+          sent INTEGER DEFAULT 0
+        )
+      `,
+      args: []
+    })
+    console.log('pending_webhook table created successfully')
   } catch (error: unknown) {
     console.error('Failed to initialize tables:', error instanceof Error ? error.message : error)
     throw error
@@ -299,7 +314,15 @@ export async function getDailyStats(env: { DATABASE_URL: string; DATABASE_AUTH_T
       args: []
     })
 
-    return result.rows as DailyStats[]
+    // Map each row to DailyStats interface
+    return result.rows.map((row: any) => ({
+      date: row.date,
+      total_requests: Number(row.total_requests),
+      total_domains_checked: Number(row.total_domains_checked),
+      blocked_domains: Number(row.blocked_domains),
+      not_blocked_domains: Number(row.not_blocked_domains),
+      error_domains: Number(row.error_domains)
+    })) as DailyStats[]
   } catch (error: unknown) {
     console.error('Error getting daily stats:', error instanceof Error ? error.message : error)
     throw new Error(`Failed to get daily stats: ${error instanceof Error ? error.message : String(error)}`)
@@ -428,7 +451,12 @@ export async function checkRateLimit(
       sql: 'SELECT count, timestamp FROM rate_limits WHERE ip = ?',
       args: [ip]
     })
-    const usage = result.rows[0] as RateLimit | undefined
+    const usageRow = result.rows[0]
+    const usage: RateLimit | undefined = usageRow ? {
+      ip: ip,
+      count: Number(usageRow.count),
+      timestamp: Number(usageRow.timestamp)
+    } : undefined
 
     if (!usage) {
       if (domainCount > maxDomains) {

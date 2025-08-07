@@ -2,12 +2,14 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { checkBatch } from './checker'
-import { initializeTables, getStats, getDailyStats, incrementStats, checkRateLimit, checkRateLimitsTable } from './db'
+import { sendDiscordWebhookBatch } from './webhook'
+import { initializeTables, getStats, getDailyStats, incrementStats, checkRateLimit, checkRateLimitsTable, initializeDbClient } from './db'
 import { indexHtml, statsHtml } from './templates'
 
 type Bindings = {
   DATABASE_URL: string
   DATABASE_AUTH_TOKEN: string
+  DISCORD_WEBHOOK_URL?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -150,6 +152,30 @@ app.post('/check', async (c) => {
       notBlocked,
       errors
     })
+
+    // Store batch for Discord webhook (batching)
+    const meta = {
+      ip,
+      total: results.length,
+      blocked,
+      notBlocked,
+      errors
+    }
+    try {
+      const uuid = crypto.randomUUID();
+      const dbClient = initializeDbClient(c.env);
+      await dbClient.execute({
+        sql: `INSERT INTO pending_webhook (id, created_at, ip, results_json, sent) VALUES (?, ?, ?, ?, 0)`,
+        args: [
+          uuid,
+          Date.now(),
+          ip,
+          JSON.stringify({meta, results})
+        ]
+      });
+    } catch (err) {
+      console.error('Failed to insert batch for Discord webhook:', err);
+    }
 
     return c.json({ 
       results,
