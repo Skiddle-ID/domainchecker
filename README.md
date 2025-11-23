@@ -2,6 +2,13 @@
 
 A Cloudflare Workers application that checks if domains are blocked using the Skiddle ID API.
 
+Public link will be **shutdown** in ```December 31th, 2025```.
+
+Announcement on my blog: 
+- [Penutupan Akses Publik API Checknawala
+](https://skiddle.id/posts/3m6cn7p77of2o/)
+- [The Story Behind Taking Down My Free checkdomain API](https://skiddle.id/posts/3m6cjqfkcfr23/)
+
 ## Features
 
 - Check multiple domains at once (up to 100 domains per request)
