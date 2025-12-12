@@ -2,7 +2,7 @@
 
 A Cloudflare Workers application that checks if domains are blocked using the Skiddle ID API.
 
-Public link will be **shutdown** in ```December 31th, 2025```.
+Public link will be **shutdown** in ```January 31th, 2026```.
 
 Announcement on my blog: 
 - [Penutupan Akses Publik API Checknawala
